@@ -1,0 +1,81 @@
+// Background selection with gene content, recombination rate and mutation rate map + 10-fold bottleneck in both parental populations after their split
+
+initialize(){
+  // read Mutation map
+  mr_lines=readFile("/PATH/TO/MUTATION/MAP");
+  mr_rates=NULL;
+  for (line in mr_lines)
+  {
+    components=strsplit(line,"\t");
+    mr_rate=c(mr_rates,asFloat(components[0]));
+  }
+  initializeMutationRate(mr_rate*10);
+  initializeMutationType("m1",0.5,"f",0.0);
+  // Define deleterious mutations with fitness effect drawn from European based gamma distribution from Boyko et al 2008
+  initializeMutationType("m2",0.5,"g",-0.2998091,0.206);
+  initializeGenomicElementType("g1",m1,1.0);
+  // Define genes as genetic elements, where NS mutations are 3 time more frequent than S mutations
+  initializeGenomicElementType("g2",c(m1,m2),c(1.0,3.0));
+  // read gene content map
+  gc_lines=readFile("/PATH/TO/GENE/MAP");
+  for (line in gc_lines)
+  {
+    components=strsplit(line,"\t");
+    gel=g1;
+    if (components[2]=="Exon")
+    {
+      gel=g2;
+    }
+    initializeGenomicElement(gel,asInteger(components[0]),asInteger(components[1]));
+  }
+  // read Recombination map
+  rm_lines=readFile("/PATH/TO/RECOMBINATION/MAP");
+  rm_rates=NULL;
+  rm_ends=NULL;
+  for (line in rm_lines)
+  {
+    components=strsplit(line,"\t");
+    rm_ends=c(rm_ends,asInteger(components[1]));
+    rm_rates=c(rm_rates,asFloat(components[0]));
+  }
+  initializeRecombinationRate(rm_rates*10,rm_ends);
+}
+
+// Create the ancestral population
+1 { sim.addSubpop("p1",1000); }
+
+// Create the parental populations from the ancestal population, which is deleted from the simulation to reduce computational intensity
+4000 {
+  sim.addSubpopSplit("p2",1000,p1);
+  sim.addSubpopSplit("p3",1000,p1);
+  p1.setSubpopulationSize(0);
+}
+
+// Introduce 10-fold resize of both parental populations effective sizes for 5 rescaled generations (i.e 50 non rescaled generations)
+4001 {
+  p2.setSubpopulationSize(100);
+  p3.setSubpopulationSize(100);
+}
+
+// End of the resize
+4006 {
+  p2.setSubpopulationSize(1000);
+  p3.setSubpopulationSize(1000);
+}
+
+// Create the admixed population from a single pulse admixture event coming from both parental populations (migration rates are set to 0 the next generation)
+4200 late() {
+  sim.addSubpop("p4",1000);
+  p4.setMigrationRates(c(p2,p3),c(0.35,0.65));
+}
+
+4201 late() {
+  p4.setMigrationRates(c(p2,p3),c(0,0));
+}
+
+4208 late()  {
+  p4.setMigrationRates(c(p2,p3),c(0,0));
+  p4.outputVCFSample(50,filePath="Fig2_BottleneckParentalOld_NullModel_PADM.vcf");
+  p3.outputVCFSample(50,filePath="Fig2_BottleneckParentalOld_NullModel_P2.vcf");
+  p2.outputVCFSample(50,filePath="Fig2_BottleneckParentalOld_NullModel_P1.vcf");
+}

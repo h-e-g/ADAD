@@ -1,0 +1,137 @@
+// Positive selection (s = 0.02) in parental pop 1 and the admixed population + Background selection with gene content, recombination rate and mutation rate map
+
+initialize(){
+  // read Mutation map
+  mr_lines=readFile("/PATH/TO/MUTATION/MAP");
+  mr_rates=NULL;
+  for (line in mr_lines)
+  {
+    components=strsplit(line,"\t");
+    mr_rate=c(mr_rates,asFloat(components[0]));
+  }
+  //rescaling mutation rates
+  initializeMutationRate(mr_rate*10);
+  initializeMutationType("m1",0.5,"f",0.0);
+  // Define deleterious mutations with fitness effect drawn from European based gamma distribution from Boyko et al 2008, values are already rescaled
+  initializeMutationType("m2",0.5,"g",-0.2998091,0.206);
+  // Define beneficial mutation with fixed fitness effect, values are already rescaled
+  initializeMutationType("m3",0.5,"f",0.2);
+  m3.convertToSubstitution=F;
+  initializeGenomicElementType("g1",m1,1.0);
+  // Define exons as genetic elements, where non-synonymous mutations are 3 time more frequent than synonymous mutations
+  initializeGenomicElementType("g2",c(m1,m2),c(1.0,3.0));
+  // read gene content map
+  gc_lines=readFile("/PATH/TO/GENE/MAP");
+  for (line in gc_lines)
+  {
+    components=strsplit(line,"\t");
+    gel=g1;
+    if (components[2]=="Exon")
+    {
+      gel=g2;
+    }
+    initializeGenomicElement(gel,asInteger(components[0]),asInteger(components[1]));
+  }
+  // read Recombination map
+  rm_lines=readFile("/PATH/TO/RECOMBINATION/MAP");
+  rm_rates=NULL;
+  rm_ends=NULL;
+  for (line in rm_lines)
+  {
+    components=strsplit(line,"\t");
+    rm_ends=c(rm_ends,asInteger(components[1]));
+    rm_rates=c(rm_rates,asFloat(components[0]));
+  }
+  // rescaling recombination rates
+  initializeRecombinationRate(rm_rates*10,rm_ends);
+}
+
+// Create the ancestral population
+1 {
+    // save this run's identifier, used to save and restore
+    defineConstant("simID",getSeed());
+    sim.addSubpop("p1",1000);
+}
+
+// Create the parental populations from the ancestal population, which is deleted from the simulation to reduce computational intensity
+4000 {
+  sim.addSubpopSplit("p2",1000,p1);
+  sim.addSubpopSplit("p3",1000,p1);
+  p1.setSubpopulationSize(0);
+}
+
+4060 late() {
+  // save the state of the simulation in a temporary directory
+  sim.outputFull("/PATH/TO/TEMPDIRECTORY/tmp/slim_" + simID + ".txt");
+  // introduce the beneficial mutation
+  target = sample(p2.genomes,1);
+  target.addNewDrawnMutation(m3,1000000);
+}
+
+// Create proxy populations from parental population that diverge 40 rescaled generations (i.e 400 non rescaled generations) before sampling, proxy population effective size is set so the average FST_Proxy_TrueParental = 0.01
+4168 {
+  sim.addSubpopSplit("p6",400,p3);
+  sim.addSubpopSplit("p5",400,p2);
+}
+
+// Create the admixed population from a single pulse admixture event coming from both parental populations (migration rates are set to 0 the next generation)
+4200 late() {
+  sim.addSubpop("p4",1000);
+  p4.setMigrationRates(c(p2,p3),c(0.35,0.65));
+
+}
+
+4201 late() {
+  p4.setMigrationRates(c(p2,p3),c(0,0));
+}
+
+4202: late()  {
+  mut = sim.mutationsOfType(m3);
+  // define condition to restore a previous state: if the beneficial mutation is lost in the simulation or if the beneficial mutation is at very low frequency in the admixed population (risk to be unsampled at the end of the simulation)
+  if (size(mut)==1)
+  {
+    if (sim.mutationFrequencies(p4,mut)>0.02)
+    {
+      p4.setMigrationRates(c(p2,p3),c(0,0));
+      cat(simID + ":PASS!\n");
+      sim.deregisterScriptBlock(self);
+    }
+    else
+    {
+      cat(simID + ": LOST IN ADM - RESTARTING\n");
+
+      // go back! to the generation when the beneficial mutation was introduced
+      sim.readFromPopulationFile("/PATH/TO/TEMPDIRECTORY/tmp/slim_" + simID + ".txt");
+
+      //start a newly seeded run by increasing the previous seed
+      setSeed(getSeed() + 1);
+
+      // re-introduce the beneficial mutation at the same position
+      target = sample(p2.genomes,1);
+      target.addNewDrawnMutation(m3,1000000);
+
+    }
+  }
+  else
+  {
+    cat(simID + ": LOST - RESTARTING\n");
+
+    // go back! to the generation when the beneficial mutation was introduced
+    sim.readFromPopulationFile("/PATH/TO/TEMPDIRECTORY/tmp/slim_" + simID + ".txt");
+
+    //start a newly seeded run by increasing the previous seed
+    setSeed(getSeed() + 1);
+
+    // re-introduce the beneficial mutation at the same position
+    target = sample(p2.genomes,1);
+    target.addNewDrawnMutation(m3,1000000);
+
+  }
+}
+
+//Proxies are sampled instead of the true parental populations
+4208 late(){
+    p4.outputVCFSample(50,filePath="Fig2_FSTProxy001_AdaptiveAdmixture_PADM.vcf");
+    p6.outputVCFSample(50,filePath="Fig2_FSTProxy001_AdaptiveAdmixture_P2.vcf");
+    p5.outputVCFSample(50,filePath="Fig2_FSTProxy001_AdaptiveAdmixture_P1.vcf");
+}
