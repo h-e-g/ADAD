@@ -4,12 +4,14 @@ initialize(){
   // read Mutation map
   mr_lines=readFile("/PATH/TO/MUTATION/MAP");
   mr_rates=NULL;
+  mr_ends=NULL;
   for (line in mr_lines)
   {
     components=strsplit(line,"\t");
-    mr_rate=c(mr_rates,asFloat(components[0]));
+    mr_ends=c(mr_ends,asInteger(components[1]));
+    mr_rates=c(mr_rates,asFloat(components[0]));
   }
-  initializeMutationRate(mr_rate*10);
+  initializeMutationRate(mr_rates*10,mr_ends);
   initializeMutationType("m1",0.5,"f",0.0);
   // Define deleterious mutations with fitness effect drawn from European based gamma distribution from Boyko et al 2008
   initializeMutationType("m2",0.5,"g",-0.2998091,0.206);
